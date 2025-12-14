@@ -10,6 +10,7 @@ const logger = require('./utils/logger');
 const { ensureProcessedDir, moveToProcessed } = require('./utils/fileHandler');
 const { waitForStableFile } = require('./utils/fileReady');
 const { processFile } = require('./processor');
+const { sendSuccessEmail, sendErrorEmail } = require('./notifier');
 
 // Load configuration from config module
 const WATCH_FOLDER = config.WATCH_FOLDER;
@@ -105,15 +106,47 @@ function startWatcher() {
 
         // Step 3: Move to Processed if successful
         if (result.ok) {
-          const destPath = moveToProcessed(filePath, processedDir);
-          const destFileName = path.basename(destPath);
-          logger.log(`File processed and moved to Processed: ${destFileName}`);
+          try {
+            const destPath = moveToProcessed(filePath, processedDir);
+            const destFileName = path.basename(destPath);
+            logger.log(`File processed and moved to Processed: ${destFileName}`);
+
+            // Send success email notification
+            const timestamp = new Date().toISOString();
+            await sendSuccessEmail({
+              filename: fileName,
+              timestamp: timestamp,
+              details: result.message || 'File successfully processed and uploaded.'
+            });
+          } catch (moveError) {
+            // Move failed - send error email
+            logger.error(`Failed to move file to Processed: ${moveError.message}`);
+            const timestamp = new Date().toISOString();
+            await sendErrorEmail({
+              filename: fileName,
+              timestamp: timestamp,
+              error: `Failed to move file to Processed folder: ${moveError.message}`
+            });
+          }
         } else {
+          // Processing failed - send error email
           logger.error(`Processing failed, file not moved: ${fileName} - ${result.message}`);
+          const timestamp = new Date().toISOString();
+          await sendErrorEmail({
+            filename: fileName,
+            timestamp: timestamp,
+            error: `Processing failed: ${result.message}`
+          });
         }
       } catch (error) {
-        // Log errors but don't crash the watcher
+        // General error (stability check, etc.) - send error email
         logger.error(`Error handling file ${fileName}: ${error.message}`);
+        const timestamp = new Date().toISOString();
+        await sendErrorEmail({
+          filename: fileName,
+          timestamp: timestamp,
+          error: `Error during file handling: ${error.message}`
+        });
       }
     }
   });

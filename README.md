@@ -8,6 +8,7 @@ Automated audio/video file uploader for Grain meeting recorder. Monitors a folde
 - Support for multiple file formats (.mov, .mp4, .mp3, .wav, .m4a)
 - File stability checking (waits for files to finish writing)
 - Automatic file organization (moves processed files to a separate folder)
+- Email notifications for successful uploads and errors
 - Configurable via environment variables
 
 ## Prerequisites
@@ -76,7 +77,7 @@ GRAIN_EMAIL=your-grain-email@example.com
 GRAIN_PASSWORD=your-grain-password
 ```
 
-### Email Notifications (Future Feature)
+### Email Notifications
 
 **EMAIL_SERVICE** - Email service provider (default: `gmail`)
 ```
@@ -115,6 +116,53 @@ For email notifications, you'll need to create an App Password:
 
 **Note:** Keep your App Password secure and never commit your `.env` file to version control!
 
+## Email Notifications
+
+The uploader sends email notifications for both successful uploads and errors. This helps you stay informed about the status of your file uploads without monitoring the application constantly.
+
+### Setting Up Email Notifications
+
+1. **Configure your email credentials** in the `.env` file (see "Getting a Gmail App Password" section above)
+2. Make sure `EMAIL_USER`, `EMAIL_PASSWORD`, and `EMAIL_TO` are set
+3. Email notifications will be sent automatically when files are processed
+
+**Note:** If email credentials are not configured, the uploader will still work normally but won't send notifications. Email sending errors won't crash the application - they'll just be logged.
+
+### What Emails Look Like
+
+**Success Email:**
+- **Subject:** `[Grain Uploader] Success: filename.mp3`
+- **Content:**
+  - Filename that was processed
+  - Timestamp when processing completed
+  - Confirmation that file was moved to Processed folder
+  - Formatted in both plain text and HTML
+
+**Error Email:**
+- **Subject:** `[Grain Uploader] Error: filename.mp3`
+- **Content:**
+  - Filename that failed
+  - Timestamp when error occurred
+  - Detailed error message
+  - Troubleshooting tips
+  - Note that file remains in the watch folder
+  - Formatted in both plain text and HTML
+
+### Testing Email Notifications
+
+To test that email notifications are working:
+
+1. **Ensure your `.env` is configured** with valid email credentials
+2. **Start the uploader:** `npm start`
+3. **Drop a test file** into your watch folder:
+   ```bash
+   touch "/path/to/watch/folder/test.mp3"
+   ```
+4. **Check your email** (the address in `EMAIL_TO`) within a few seconds
+5. You should receive a success email since processing is currently stubbed to always succeed
+
+**Tip:** Check your spam folder if you don't see the email in your inbox. You may need to mark it as "Not Spam" the first time.
+
 ## Usage
 
 ### Start the uploader
@@ -144,6 +192,7 @@ grain-auto-uploader/
 ├── src/
 │   ├── config.js           # Configuration management
 │   ├── index.js            # Main entry point
+│   ├── notifier.js         # Email notifications
 │   ├── processor.js        # File processing logic
 │   ├── watcher.js          # Folder monitoring
 │   └── utils/
@@ -170,6 +219,20 @@ Make sure you've created a `.env` file (copy from `.env.example`) and set the `W
 - Check write permissions for the watch folder
 - Verify there's enough disk space
 - Check the logs for specific error messages
+
+### Email notifications not working
+- Verify `EMAIL_USER`, `EMAIL_PASSWORD`, and `EMAIL_TO` are set in `.env`
+- Make sure you're using a Gmail App Password, not your regular Gmail password
+- Check that 2-Step Verification is enabled on your Google Account
+- Look for email-related errors in the console logs
+- Check your spam/junk folder for the notification emails
+- Test your credentials by trying to send a test email manually
+- Ensure your internet connection is working
+
+### Emails going to spam
+- Mark the first email as "Not Spam" in your email client
+- Add your `EMAIL_USER` address to your contacts
+- Check your email provider's spam filter settings
 
 ## License
 
