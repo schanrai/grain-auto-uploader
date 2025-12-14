@@ -185,6 +185,58 @@ npm run dev
 
 Note: This requires nodemon to be installed (`npm install -g nodemon`)
 
+### Testing Grain Login
+
+Before running the full uploader, you should test that your Grain credentials work correctly:
+
+```bash
+node test-login.js
+```
+
+**What this does:**
+- Launches a browser window (visible by default)
+- Navigates to Grain login page
+- Enters your credentials from `.env`
+- Attempts to log in
+- Takes screenshots of the process
+- Reports success or failure
+
+**Command options:**
+```bash
+# Default: Run with visible browser (recommended for first test)
+node test-login.js
+
+# Run in headless mode (no visible browser)
+node test-login.js --headless
+```
+
+**Expected output:**
+```
+[TIMESTAMP] Starting Grain login test...
+[TIMESTAMP] Launching browser (headless: false)...
+[TIMESTAMP] Navigating to Grain login page...
+[TIMESTAMP] Entering email: your-email@example.com
+[TIMESTAMP] Entering password...
+[TIMESTAMP] Clicking login button...
+[TIMESTAMP] ✓ Grain login test PASSED
+```
+
+**Screenshots saved to `logs/` directory:**
+- `login-before-submit.png` - Login form before submission
+- `login-success.png` - Dashboard after successful login
+- `login-error.png` - Error state (if login fails)
+
+**Exit codes:**
+- `0` - Login successful
+- `1` - Login failed
+
+**Troubleshooting login test:**
+- Make sure `GRAIN_EMAIL` and `GRAIN_PASSWORD` are set correctly in `.env`
+- Check that your Grain account credentials are valid
+- Try logging in manually to Grain first to ensure your account works
+- If login fails, check `logs/login-error.png` to see what went wrong
+- Some accounts may have 2FA enabled - this may require additional setup
+
 ## Project Structure
 
 ```
@@ -194,12 +246,14 @@ grain-auto-uploader/
 │   ├── index.js            # Main entry point
 │   ├── notifier.js         # Email notifications
 │   ├── processor.js        # File processing logic
+│   ├── uploader.js         # Grain browser automation
 │   ├── watcher.js          # Folder monitoring
 │   └── utils/
 │       ├── fileHandler.js  # File operations
 │       ├── fileReady.js    # File stability checking
 │       └── logger.js       # Logging utilities
-├── logs/                   # Application logs
+├── logs/                   # Application logs & screenshots
+├── test-login.js           # Grain login test script
 ├── .env                    # Your configuration (not in git)
 ├── .env.example            # Configuration template
 └── package.json
