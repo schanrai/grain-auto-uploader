@@ -5,18 +5,16 @@
 
 const chokidar = require('chokidar');
 const path = require('path');
+const config = require('./config');
 const logger = require('./utils/logger');
 const { ensureProcessedDir, moveToProcessed } = require('./utils/fileHandler');
 const { waitForStableFile } = require('./utils/fileReady');
 const { processFile } = require('./processor');
 
-// Folder to monitor for new Grain recording files
-const WATCH_FOLDER = '/Users/sushichan/Desktop/Grain Uploads';
-
-// Supported file extensions for Grain uploads
-// Video: .mov, .mp4 (must use H.264 codec)
-// Audio: .mp3, .wav, .m4a
-const SUPPORTED_EXTENSIONS = ['.mov', '.mp4', '.mp3', '.wav', '.m4a'];
+// Load configuration from config module
+const WATCH_FOLDER = config.WATCH_FOLDER;
+const SUPPORTED_EXTENSIONS = config.SUPPORTED_EXTENSIONS;
+const PROCESSED_FOLDER = config.PROCESSED_FOLDER;
 
 /**
  * Checks if a file has a supported extension for Grain uploads
@@ -34,7 +32,7 @@ function isSupportedFile(filePath) {
  * @returns {boolean} True if the file is in the Processed folder
  */
 function isInProcessedFolder(filePath) {
-  return filePath.includes(path.join(WATCH_FOLDER, 'Processed'));
+  return filePath.includes(PROCESSED_FOLDER);
 }
 
 /**
@@ -47,9 +45,13 @@ function startWatcher() {
   logger.log(`Supported extensions: ${SUPPORTED_EXTENSIONS.join(', ')}`);
 
   // Ensure the Processed directory exists
-  let processedDir;
+  // Use PROCESSED_FOLDER from config, but ensure it exists
+  const processedDir = PROCESSED_FOLDER;
   try {
-    processedDir = ensureProcessedDir(WATCH_FOLDER);
+    const fs = require('fs');
+    if (!fs.existsSync(processedDir)) {
+      fs.mkdirSync(processedDir, { recursive: true });
+    }
     logger.log(`Processed directory ready: ${processedDir}`);
   } catch (error) {
     logger.error(`Failed to create Processed directory: ${error.message}`);
