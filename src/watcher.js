@@ -6,6 +6,9 @@
 const chokidar = require('chokidar');
 const path = require('path');
 const logger = require('./utils/logger');
+const { ensureProcessedDir, moveToProcessed } = require('./utils/fileHandler');
+const { waitForStableFile } = require('./utils/fileReady');
+const { processFile } = require('./processor');
 
 // Folder to monitor for new Grain recording files
 const WATCH_FOLDER = '/Users/sushichan/Desktop/Grain Uploads';
@@ -43,6 +46,16 @@ function startWatcher() {
   logger.log(`Monitoring folder: ${WATCH_FOLDER}`);
   logger.log(`Supported extensions: ${SUPPORTED_EXTENSIONS.join(', ')}`);
 
+  // Ensure the Processed directory exists
+  let processedDir;
+  try {
+    processedDir = ensureProcessedDir(WATCH_FOLDER);
+    logger.log(`Processed directory ready: ${processedDir}`);
+  } catch (error) {
+    logger.error(`Failed to create Processed directory: ${error.message}`);
+    throw error;
+  }
+
   /**
    * Chokidar watcher configuration:
    * - ignored: Skip dotfiles and the Processed subfolder
@@ -67,14 +80,39 @@ function startWatcher() {
   /**
    * Event: 'add' - Fired when a new file is added to the watched folder
    * This is the main event we use to detect new Grain recordings
+   * Processing flow:
+   * 1. Wait for file to be stable (fully written)
+   * 2. Process the file (upload, transcription, etc.)
+   * 3. Move to Processed folder if successful
    */
-  watcher.on('add', (filePath) => {
+  watcher.on('add', async (filePath) => {
     // Double-check that file is not in Processed folder and has supported extension
     if (!isInProcessedFolder(filePath) && isSupportedFile(filePath)) {
       const fileName = path.basename(filePath);
       logger.log(`New file detected: ${fileName}`);
 
-      // TODO Phase 2: Add file to upload queue
+      try {
+        // Step 1: Wait for file to be completely written
+        logger.log(`Waiting for file to stabilize: ${fileName}`);
+        await waitForStableFile(filePath);
+        logger.log(`File stable and ready: ${fileName}`);
+
+        // Step 2: Process the file (upload, etc.)
+        logger.log(`Processing file: ${fileName}`);
+        const result = await processFile(filePath);
+
+        // Step 3: Move to Processed if successful
+        if (result.ok) {
+          const destPath = moveToProcessed(filePath, processedDir);
+          const destFileName = path.basename(destPath);
+          logger.log(`File processed and moved to Processed: ${destFileName}`);
+        } else {
+          logger.error(`Processing failed, file not moved: ${fileName} - ${result.message}`);
+        }
+      } catch (error) {
+        // Log errors but don't crash the watcher
+        logger.error(`Error handling file ${fileName}: ${error.message}`);
+      }
     }
   });
 
