@@ -303,7 +303,99 @@ node test-upload.js "/path/to/file.mp3" --headless
 - If upload times out, check `logs/upload-timeout.png`
 - Make sure you have a stable internet connection
 
-**Note:** This is a standalone test. Files placed in the watch folder are NOT automatically uploaded yet - that integration is coming in a future phase.
+**Note:** This is a standalone test script. For automatic uploads, use the main uploader (see Production Setup below).
+
+## Production Setup with PM2
+
+For production use, it's recommended to run the uploader with PM2 for automatic restarts and process management.
+
+### Install PM2
+
+```bash
+npm install -g pm2
+```
+
+### Start with PM2
+
+```bash
+npm run pm2:start
+```
+
+This will:
+- Start the uploader as a background process
+- Auto-restart if it crashes
+- Restart if memory usage exceeds 500MB
+- Log all output to `logs/pm2-out.log` and `logs/pm2-error.log`
+
+### PM2 Commands
+
+```bash
+# View logs
+npm run pm2:logs
+
+# Stop the uploader
+npm run pm2:stop
+
+# Restart the uploader
+npm run pm2:restart
+
+# Remove from PM2
+npm run pm2:delete
+```
+
+### Auto-start on System Boot
+
+To make the uploader start automatically when your Mac boots:
+
+1. **Generate startup script:**
+   ```bash
+   pm2 startup
+   ```
+
+2. **Copy and run the command** that PM2 outputs (it will look something like):
+   ```bash
+   sudo env PATH=$PATH:/path/to/node pm2 startup launchd -u yourusername --hp /Users/yourusername
+   ```
+
+3. **Save the current PM2 process list:**
+   ```bash
+   pm2 save
+   ```
+
+Now the uploader will automatically start whenever your Mac reboots!
+
+### PM2 Monitoring
+
+```bash
+# View process status
+pm2 status
+
+# View detailed info
+pm2 info grain-uploader
+
+# Monitor in real-time
+pm2 monit
+```
+
+### Troubleshooting PM2
+
+**Problem: PM2 command not found**
+- Solution: Install PM2 globally with `npm install -g pm2`
+
+**Problem: Process keeps restarting**
+- Check logs: `npm run pm2:logs`
+- Check for errors in `logs/pm2-error.log`
+- Verify your `.env` file is configured correctly
+
+**Problem: Auto-start not working after reboot**
+- Run `pm2 startup` again and follow the instructions
+- Make sure you ran `pm2 save` after starting the uploader
+- Check: `pm2 list` should show your process
+
+**Problem: Can't see recent logs**
+- PM2 logs are in `logs/pm2-out.log` and `logs/pm2-error.log`
+- Application logs with timestamps are in the PM2 output
+- Use `pm2 flush` to clear old logs if needed
 
 ## Project Structure
 
