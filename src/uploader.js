@@ -340,6 +340,7 @@ async function uploadFileToGrain(filePath, options = {}) {
     page.setDefaultTimeout(60000);
 
     // Set up GraphQL response monitoring
+    let uploadStarted = false;
     let uploadSuccess = false;
     let recordingData = null;
 
@@ -352,28 +353,41 @@ async function uploadFileToGrain(filePath, options = {}) {
           const request = response.request();
           const requestPostData = request.postData();
 
-          // Check if request includes operationName: "recording"
-          if (requestPostData && requestPostData.includes('"operationName":"recording"')) {
+          // Stage 1: Check if upload has been initiated (recordingUploadInfo)
+          if (requestPostData && requestPostData.includes('"operationName"')) {
             const responseJson = await response.json();
 
-            // Check for success indicators
-            if (responseJson.data?.recording) {
-              const recording = responseJson.data.recording;
+            // Upload initiation detected
+            if (responseJson.data?.recordingUploadInfo) {
+              const uploadInfo = responseJson.data.recordingUploadInfo;
+              if (uploadInfo.url?.uuid) {
+                logger.log('✓ Upload initiation detected!');
+                logger.log(`Upload UUID: ${uploadInfo.url.uuid}`);
+                logger.log(`Max upload size: ${(uploadInfo.maxUploadBytes / 1024 / 1024 / 1024).toFixed(2)} GB`);
+                uploadStarted = true;
+              }
+            }
 
-              if (recording.recordingUrl &&
-                  recording.recordingUrl.length > 0 &&
-                  recording.state === 'PROCESSING') {
-                logger.log('✓ Upload success detected via GraphQL response!');
-                logger.log(`Recording ID: ${recording.id}`);
-                logger.log(`Recording URL: ${recording.recordingUrl}`);
-                logger.log(`State: ${recording.state}`);
+            // Stage 2: Check if upload has completed (recording with PROCESSING state)
+            if (requestPostData.includes('"operationName":"recording"')) {
+              if (responseJson.data?.recording) {
+                const recording = responseJson.data.recording;
 
-                uploadSuccess = true;
-                recordingData = {
-                  id: recording.id,
-                  recordingUrl: recording.recordingUrl,
-                  state: recording.state
-                };
+                if (recording.recordingUrl &&
+                    recording.recordingUrl.length > 0 &&
+                    recording.state === 'PROCESSING') {
+                  logger.log('✓ Upload success detected via GraphQL response!');
+                  logger.log(`Recording ID: ${recording.id}`);
+                  logger.log(`Recording URL: ${recording.recordingUrl}`);
+                  logger.log(`State: ${recording.state}`);
+
+                  uploadSuccess = true;
+                  recordingData = {
+                    id: recording.id,
+                    recordingUrl: recording.recordingUrl,
+                    state: recording.state
+                  };
+                }
               }
             }
           }
@@ -474,25 +488,19 @@ async function uploadFileToGrain(filePath, options = {}) {
     logger.log('Uploading file...');
     await fileInput.uploadFile(filePath);
 
-    // Wait for upload to process and GraphQL response
-    logger.log('Waiting for upload to complete...');
+    // Stage 1: Wait for upload to START (60 seconds)
+    logger.log('Waiting for upload initiation...');
 
-    // Poll for success for up to 60 seconds
-    const maxWaitTime = 60000;
+    const initiationTimeout = 60000; // 60 seconds
     const pollInterval = 1000;
     let elapsedTime = 0;
 
-    while (!uploadSuccess && elapsedTime < maxWaitTime) {
+    while (!uploadStarted && elapsedTime < initiationTimeout) {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
       elapsedTime += pollInterval;
-
-      if (uploadSuccess) {
-        break;
-      }
     }
 
-    if (!uploadSuccess) {
-      // Take error screenshot
+    if (!uploadStarted) {
       const logsDir = path.join(__dirname, '../logs');
       if (!fs.existsSync(logsDir)) {
         fs.mkdirSync(logsDir, { recursive: true });
@@ -505,7 +513,40 @@ async function uploadFileToGrain(filePath, options = {}) {
 
       return {
         ok: false,
-        message: `Upload timeout: No success response received after ${maxWaitTime / 1000} seconds. Check logs/upload-timeout.png`
+        message: `Upload initiation timeout: Upload did not start after ${initiationTimeout / 1000} seconds. Check logs/upload-timeout.png`
+      };
+    }
+
+    // Stage 2: Wait for upload to COMPLETE (20 minutes after it starts)
+    logger.log('✓ Upload started! Waiting for completion...');
+
+    const completionTimeout = 1200000; // 20 minutes
+    elapsedTime = 0;
+
+    while (!uploadSuccess && elapsedTime < completionTimeout) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      elapsedTime += pollInterval;
+
+      // Log progress every 30 seconds
+      if (elapsedTime % 30000 === 0) {
+        logger.log(`Still waiting for upload completion... (${elapsedTime / 1000}s elapsed)`);
+      }
+    }
+
+    if (!uploadSuccess) {
+      const logsDir = path.join(__dirname, '../logs');
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+
+      await page.screenshot({
+        path: path.join(logsDir, 'upload-timeout.png'),
+        fullPage: true
+      });
+
+      return {
+        ok: false,
+        message: `Upload completion timeout: No success response received after ${completionTimeout / 1000} seconds. File may still be processing on Grain. Check logs/upload-timeout.png`
       };
     }
 
