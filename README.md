@@ -237,6 +237,74 @@ node test-login.js --headless
 - If login fails, check `logs/login-error.png` to see what went wrong
 - Some accounts may have 2FA enabled - this may require additional setup
 
+### Testing File Upload
+
+After verifying login works, you can test uploading a single file to Grain:
+
+```bash
+node test-upload.js "/path/to/your/audio-file.mp3"
+```
+
+**What this does:**
+- Logs into Grain via Google OAuth
+- Navigates to the upload page
+- Selects and uploads your file
+- Monitors GraphQL responses for upload success
+- Returns the recording URL and ID
+
+**Command options:**
+```bash
+# Default: Run with visible browser (recommended for first test)
+node test-upload.js "/path/to/file.mp3"
+
+# Run in headless mode (no visible browser)
+node test-upload.js "/path/to/file.mp3" --headless
+```
+
+**Expected output:**
+```
+[TIMESTAMP] Starting Grain file upload...
+[TIMESTAMP] File: /path/to/file.mp3
+[TIMESTAMP] Launching browser (headless: false)...
+[TIMESTAMP] Logging into Grain...
+[TIMESTAMP] Navigating to upload page...
+[TIMESTAMP] Looking for file input...
+[TIMESTAMP] Uploading file...
+[TIMESTAMP] Waiting for upload to complete...
+[TIMESTAMP] ✓ Upload success detected via GraphQL response!
+[TIMESTAMP] Recording ID: abc-123-def-456
+[TIMESTAMP] Recording URL: https://grain.com/share/recording/...
+[TIMESTAMP] ✓ File uploaded successfully to Grain!
+```
+
+**Success indicators:**
+- GraphQL response with `operationName: "recording"`
+- Response contains `data.recording.recordingUrl` (non-empty)
+- Response contains `data.recording.state === "PROCESSING"`
+- Returns recording URL you can visit
+
+**Screenshots saved to `logs/` directory:**
+- `upload-error.png` - Error state (if upload fails)
+- `upload-timeout.png` - If upload times out after 60 seconds
+
+**Exit codes:**
+- `0` - Upload successful
+- `1` - Upload failed
+
+**Supported file types:**
+- Audio: `.mp3`, `.wav`, `.m4a`
+- Video: `.mov`, `.mp4` (H.264 codec)
+
+**Troubleshooting upload test:**
+- Make sure the file path is correct and the file exists
+- Ensure the file is a supported type (see above)
+- Large files may take longer to upload - be patient
+- If upload fails, check `logs/upload-error.png` to see what went wrong
+- If upload times out, check `logs/upload-timeout.png`
+- Make sure you have a stable internet connection
+
+**Note:** This is a standalone test. Files placed in the watch folder are NOT automatically uploaded yet - that integration is coming in a future phase.
+
 ## Project Structure
 
 ```
@@ -254,6 +322,7 @@ grain-auto-uploader/
 │       └── logger.js       # Logging utilities
 ├── logs/                   # Application logs & screenshots
 ├── test-login.js           # Grain login test script
+├── test-upload.js          # File upload test script
 ├── .env                    # Your configuration (not in git)
 ├── .env.example            # Configuration template
 └── package.json

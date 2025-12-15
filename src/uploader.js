@@ -278,6 +278,285 @@ async function testGrainLogin(options = {}) {
   }
 }
 
+/**
+ * Uploads a file to Grain via browser automation
+ * Logs in, navigates to upload page, selects file, and monitors GraphQL response
+ *
+ * @param {string} filePath - Absolute path to the file to upload
+ * @param {Object} options - Upload options
+ * @param {boolean} options.headless - Whether to run browser in headless mode (default: true)
+ * @returns {Promise<{ok: boolean, recordingUrl?: string, id?: string, message: string}>}
+ */
+async function uploadFileToGrain(filePath, options = {}) {
+  const headless = options.headless !== undefined ? options.headless : true;
+
+  let browser = null;
+
+  try {
+    logger.log('Starting Grain file upload...');
+    logger.log(`File: ${filePath}`);
+
+    // Validate file exists
+    if (!fs.existsSync(filePath)) {
+      return {
+        ok: false,
+        message: `File does not exist: ${filePath}`
+      };
+    }
+
+    // Validate credentials
+    if (!config.GRAIN_EMAIL || !config.GRAIN_PASSWORD) {
+      return {
+        ok: false,
+        message: 'GRAIN_EMAIL or GRAIN_PASSWORD not configured in .env file'
+      };
+    }
+
+    logger.log(`Launching browser (headless: ${headless})...`);
+
+    // Launch browser
+    browser = await puppeteer.launch({
+      headless: headless ? 'new' : false,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ],
+      defaultViewport: {
+        width: 1280,
+        height: 800
+      },
+      timeout: 60000
+    });
+
+    const page = await browser.newPage();
+
+    // Set user agent
+    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    page.setDefaultTimeout(60000);
+
+    // Set up GraphQL response monitoring
+    let uploadSuccess = false;
+    let recordingData = null;
+
+    page.on('response', async (response) => {
+      const url = response.url();
+
+      // Check if this is a GraphQL request
+      if (url.includes('graphql') || url.includes('/api/')) {
+        try {
+          const request = response.request();
+          const requestPostData = request.postData();
+
+          // Check if request includes operationName: "recording"
+          if (requestPostData && requestPostData.includes('"operationName":"recording"')) {
+            const responseJson = await response.json();
+
+            // Check for success indicators
+            if (responseJson.data?.recording) {
+              const recording = responseJson.data.recording;
+
+              if (recording.recordingUrl &&
+                  recording.recordingUrl.length > 0 &&
+                  recording.state === 'PROCESSING') {
+                logger.log('✓ Upload success detected via GraphQL response!');
+                logger.log(`Recording ID: ${recording.id}`);
+                logger.log(`Recording URL: ${recording.recordingUrl}`);
+                logger.log(`State: ${recording.state}`);
+
+                uploadSuccess = true;
+                recordingData = {
+                  id: recording.id,
+                  recordingUrl: recording.recordingUrl,
+                  state: recording.state
+                };
+              }
+            }
+          }
+        } catch (parseError) {
+          // Not all responses are JSON, ignore parse errors
+        }
+      }
+    });
+
+    // Step 1: Login to Grain
+    logger.log('Logging into Grain...');
+    logger.log(`Navigating to Grain login page: ${GRAIN_LOGIN_URL}`);
+
+    await page.goto(GRAIN_LOGIN_URL, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Click "Sign in with Google"
+    logger.log('Clicking "Sign in with Google"...');
+    const buttonClicked = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+      const googleButton = buttons.find(btn => {
+        const text = btn.textContent.toLowerCase();
+        return text.includes('google') || text.includes('sign in with google');
+      });
+
+      if (googleButton) {
+        googleButton.click();
+        return true;
+      }
+      return false;
+    });
+
+    if (!buttonClicked) {
+      throw new Error('Could not find "Sign in with Google" button');
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Google OAuth flow
+    logger.log('Entering Google credentials...');
+    await page.waitForSelector('input[type="email"]', { timeout: 20000 });
+    await page.type('input[type="email"]', config.GRAIN_EMAIL, { delay: 50 });
+
+    await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const nextBtn = buttons.find(btn =>
+        btn.textContent.includes('Next') ||
+        btn.textContent.includes('next') ||
+        btn.id === 'identifierNext'
+      );
+      if (nextBtn) nextBtn.click();
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    await page.waitForSelector('input[type="password"]', { timeout: 20000 });
+    await page.type('input[type="password"]', config.GRAIN_PASSWORD, { delay: 50 });
+
+    await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const nextBtn = buttons.find(btn =>
+        btn.textContent.includes('Next') ||
+        btn.textContent.includes('Sign in') ||
+        btn.textContent.includes('Continue') ||
+        btn.id === 'passwordNext'
+      );
+      if (nextBtn) nextBtn.click();
+    });
+
+    // Wait for redirect back to Grain
+    logger.log('Waiting for login to complete...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    // Step 2: Navigate to upload page
+    const uploadUrl = 'https://grain.com/app/upload-recording';
+    logger.log(`Navigating to upload page: ${uploadUrl}`);
+
+    await page.goto(uploadUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Step 3: Find and upload file
+    logger.log('Looking for file input...');
+
+    const fileInput = await page.$('input#recording-meeting-file');
+
+    if (!fileInput) {
+      throw new Error('Could not find file input element: input#recording-meeting-file');
+    }
+
+    logger.log('Uploading file...');
+    await fileInput.uploadFile(filePath);
+
+    // Wait for upload to process and GraphQL response
+    logger.log('Waiting for upload to complete...');
+
+    // Poll for success for up to 60 seconds
+    const maxWaitTime = 60000;
+    const pollInterval = 1000;
+    let elapsedTime = 0;
+
+    while (!uploadSuccess && elapsedTime < maxWaitTime) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      elapsedTime += pollInterval;
+
+      if (uploadSuccess) {
+        break;
+      }
+    }
+
+    if (!uploadSuccess) {
+      // Take error screenshot
+      const logsDir = path.join(__dirname, '../logs');
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+
+      await page.screenshot({
+        path: path.join(logsDir, 'upload-timeout.png'),
+        fullPage: true
+      });
+
+      return {
+        ok: false,
+        message: `Upload timeout: No success response received after ${maxWaitTime / 1000} seconds. Check logs/upload-timeout.png`
+      };
+    }
+
+    // Success!
+    logger.log('✓ File uploaded successfully to Grain!');
+
+    return {
+      ok: true,
+      recordingUrl: recordingData.recordingUrl,
+      id: recordingData.id,
+      message: `Successfully uploaded file. Recording ID: ${recordingData.id}`
+    };
+
+  } catch (error) {
+    logger.error(`Upload error: ${error.message}`);
+
+    // Try to take error screenshot
+    try {
+      if (browser) {
+        const pages = await browser.pages();
+        if (pages.length > 0) {
+          const logsDir = path.join(__dirname, '../logs');
+          if (!fs.existsSync(logsDir)) {
+            fs.mkdirSync(logsDir, { recursive: true });
+          }
+          await pages[0].screenshot({
+            path: path.join(logsDir, 'upload-error.png'),
+            fullPage: true
+          });
+          logger.log('Error screenshot saved: logs/upload-error.png');
+        }
+      }
+    } catch (screenshotError) {
+      // Ignore screenshot errors
+    }
+
+    return {
+      ok: false,
+      message: `Upload failed: ${error.message}`
+    };
+
+  } finally {
+    // Close browser
+    if (browser) {
+      logger.log('Closing browser...');
+      await browser.close();
+    }
+  }
+}
+
 module.exports = {
-  testGrainLogin
+  testGrainLogin,
+  uploadFileToGrain
 };
