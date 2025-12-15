@@ -38,9 +38,10 @@ function createTransporter() {
  * @param {string} params.filename - The name of the file that was processed
  * @param {string} params.timestamp - ISO timestamp of when processing completed
  * @param {string} params.details - Additional success details
+ * @param {string} [params.recordingUrl] - Optional Grain recording URL
  * @returns {Promise<boolean>} True if email was sent successfully, false otherwise
  */
-async function sendSuccessEmail({ filename, timestamp, details }) {
+async function sendSuccessEmail({ filename, timestamp, details, recordingUrl }) {
   const transporter = createTransporter();
 
   if (!transporter) {
@@ -48,6 +49,8 @@ async function sendSuccessEmail({ filename, timestamp, details }) {
   }
 
   const emailTo = config.EMAIL_TO || config.EMAIL_USER;
+
+  const recordingUrlText = recordingUrl ? `\n\nView your recording:\n${recordingUrl}` : '';
 
   const mailOptions = {
     from: config.EMAIL_USER,
@@ -65,7 +68,7 @@ Filename: ${filename}
 Completed: ${timestamp}
 Status: Successfully processed and moved to Processed folder
 
-${details || 'Processing completed without errors.'}
+${details || 'Processing completed without errors.'}${recordingUrlText}
 
 ---
 This is an automated message from Grain Auto-Uploader.
@@ -100,6 +103,13 @@ If you did not expect this email, please check your uploader configuration.
       </div>
 
       <p>${details || 'Processing completed without errors.'}</p>
+
+      ${recordingUrl ? `
+      <div style="margin: 20px 0; padding: 15px; background-color: #e8f5e9; border: 1px solid #4CAF50; border-radius: 3px;">
+        <p><strong>View your recording:</strong></p>
+        <p><a href="${recordingUrl}" style="color: #4CAF50; text-decoration: none; font-weight: bold;">${recordingUrl}</a></p>
+      </div>
+      ` : ''}
     </div>
     <div class="footer">
       <p>This is an automated message from Grain Auto-Uploader.</p>
